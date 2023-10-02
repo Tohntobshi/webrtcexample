@@ -1,0 +1,16 @@
+{
+  "name": "webrtc_test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "client": "esbuild --bundle client.js --outfile=client/index.js --servedir=client",
+    "server": "node signaling-server.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "esbuild": "^0.17.18",
+    "ws": "^8.13.0"
+  }
+}

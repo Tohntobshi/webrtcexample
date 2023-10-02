@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "type_traits": "cpp",
+        "iostream": "cpp",
+        "chrono": "cpp",
+        "condition_variable": "cpp",
+        "thread": "cpp"
+    }
+}
