@@ -18,15 +18,72 @@
 #include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
 #include "api/video_codecs/video_encoder_factory_template_libvpx_vp9_adapter.h"
 #include "api/video_codecs/video_encoder_factory_template_open_h264_adapter.h"
+#include "api/video/i420_buffer.h"
+#include "api/video/video_frame_buffer.h"
 
 #include "rtc_base/ssl_adapter.h"
 
 #include <ixwebsocket/IXWebSocket.h>
 #include <jsoncpp/json/json.h>
 
+#include "third_party/libyuv/include/libyuv/convert.h"
+#include "third_party/libyuv/include/libyuv/convert_from.h"
+
 #include <thread>
 
 using std::cout;
+
+class MyFrameTransformer {
+public:
+    uint8_t argbdata[1920 * 1080 * 4];
+    long counter = 0;
+    webrtc::VideoFrame transformFrame(const webrtc::VideoFrame & frame) {
+        rtc::scoped_refptr<webrtc::I420BufferInterface> buffer(frame.video_frame_buffer()->ToI420());
+        int width = buffer->width();
+        int height = buffer->height();
+        if (width > 1920 || height > 1080) {
+            // it won't fit to argbdata, just returning the frame without changes
+            return frame;
+        }
+        // there were some warnings in libwebrtc that is works only for little endian
+        libyuv::I420ToARGB(buffer->DataY(), buffer->StrideY(),
+            buffer->DataU(), buffer->StrideU(),
+            buffer->DataV(), buffer->StrideV(),
+            argbdata, width * 4, width, height);
+        // now we have array of pixels and can do anything with it
+
+        // just painting moving diagonally 100x100 square on top of the received image as a test
+        int h_start = counter % (height - 100);
+        int w_start = counter % (width - 100);
+        for (int h = h_start; h < h_start + 100; h++) {
+            for (int w = w_start; w < w_start + 100; w++) {
+                int pixIndex = h * width * 4 + w * 4;
+                argbdata[pixIndex] = 255; // b
+                argbdata[pixIndex + 1] = 255; // g
+                argbdata[pixIndex + 2] = 0; // r
+                argbdata[pixIndex + 3] = 255; // a
+            }
+        }
+        counter++;
+
+        // putting it to a new frame
+        rtc::scoped_refptr<webrtc::I420Buffer> new_buffer = webrtc::I420Buffer::Create(width, height);
+        libyuv::ARGBToI420(argbdata, width * 4,
+            new_buffer->MutableDataY(), buffer->StrideY(),
+            new_buffer->MutableDataU(), buffer->StrideU(),
+            new_buffer->MutableDataV(), buffer->StrideV(),
+            width, height);
+        
+        webrtc::VideoFrame new_frame =
+          webrtc::VideoFrame::Builder()
+              .set_video_frame_buffer(new_buffer)
+              .set_rotation(frame.rotation())
+              .set_timestamp_us(frame.timestamp_us())
+              .set_id(frame.id())
+              .build();
+        return new_frame;
+    }
+};
 
 class DummySetSessionDescriptionObserver : public webrtc::SetSessionDescriptionObserver {
 public:
@@ -79,6 +136,7 @@ class VideoRenderer : public rtc::VideoSinkInterface<webrtc::VideoFrame> {
 public:
     rtc::scoped_refptr<webrtc::VideoTrackInterface> rendered_track;
     MyVideoTrackSource * destinationToWrite;
+    MyFrameTransformer transformer;
     VideoRenderer(webrtc::VideoTrackInterface* track_to_render, MyVideoTrackSource * destination): rendered_track(track_to_render), destinationToWrite(destination) {
         rendered_track->AddOrUpdateSink(this, rtc::VideoSinkWants());
         cout << "created video renderer\n";
@@ -92,7 +150,7 @@ public:
         // this is called on each received frame
         // cout << std::this_thread::get_id() << " on frame\n";
         // just writing received frames to my source of frames to send back
-        destinationToWrite->writeFrameToSink(frame);
+        destinationToWrite->writeFrameToSink(transformer.transformFrame(frame));
     }    
 };
 
