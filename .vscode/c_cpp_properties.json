@@ -3,7 +3,8 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/../webrtc-checkout/src/**"
+                "/home/tohntobshi/webrtc/src/**",
+                "/home/tohntobshi/ffmpeg_build/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",

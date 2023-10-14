@@ -6,10 +6,10 @@ async function run() {
     ws.addEventListener('error', console.error)
     const peerConnection = new RTCPeerConnection(configuration)
     try {
-        const constraints = {'video': true, 'audio': true}
+        const constraints = {'video': { width: 640, height: 480 }, 'audio': true}
         const localStream = await navigator.mediaDevices.getUserMedia(constraints)
-        localStream.getAudioTracks()[0].enabled = false
-        vid1.srcObject = localStream
+        // localStream.getAudioTracks()[0].enabled = false
+        // vid1.srcObject = localStream
         localStream.getTracks().forEach(tr => peerConnection.addTrack(tr, localStream))
     } catch (e) {
         console.log("couldn't open camera")
@@ -27,7 +27,7 @@ async function run() {
         }
     }
     peerConnection.ontrack = (event) => {
-        console.log('ontrack')
+        console.log('ontrack', event.streams[0].getTracks())
         vid2.srcObject = event.streams[0]
     }
     ws.addEventListener('message', async e => {
