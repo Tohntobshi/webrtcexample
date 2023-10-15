@@ -9,7 +9,7 @@ async function run() {
         const constraints = {'video': { width: 640, height: 480 }, 'audio': true}
         const localStream = await navigator.mediaDevices.getUserMedia(constraints)
         // localStream.getAudioTracks()[0].enabled = false
-        // vid1.srcObject = localStream
+        vid1.srcObject = localStream
         localStream.getTracks().forEach(tr => peerConnection.addTrack(tr, localStream))
     } catch (e) {
         console.log("couldn't open camera")

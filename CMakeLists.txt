@@ -18,8 +18,6 @@ include_directories(
     /home/tohntobshi/webrtc/src/third_party/libyuv/include
 
     /home/tohntobshi/ffmpeg_build/include
-    # /home/tohntobshi/webrtc/src/third_party/ffmpeg
-    # /home/tohntobshi/webrtc/src/third_party/ffmpeg/chromium/config/Chrome/linux/x64
 )
 
 set(
@@ -38,7 +36,7 @@ target_link_libraries(webrtcexample
 
     jsoncpp
 
-    /home/tohntobshi/webrtc/src/out/Default/obj/libwebrtc.a
+    /home/tohntobshi/webrtc/src/out/Default2/obj/libwebrtc.a
 
     # X11
 
