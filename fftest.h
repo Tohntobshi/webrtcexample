@@ -13,7 +13,7 @@ extern "C"
 #include <libswresample/swresample.h>
 }
 
-class VideoRecorder {
+class MyVideoRecorder: public rtc::VideoSinkInterface<webrtc::VideoFrame>, public webrtc::AudioTrackSinkInterface {
     std::mutex myMtx;
     AVChannelLayout channel_layout;
     int width;
@@ -41,9 +41,16 @@ class VideoRecorder {
     int last_v_pts;
     void writeASample(float sample);
     int total_written_a_samples;
+    webrtc::VideoTrackInterface* video_track;
+    webrtc::AudioTrackInterface* audio_track;
 public:
+    void setVideoTrack(webrtc::VideoTrackInterface* track);
+    void setAudioTrack(webrtc::AudioTrackInterface* track);
     void start();
-    void recordFrame(const webrtc::VideoFrame & frame);
-    void recordAFrame(const void* audio_data, int bits_per_sample, int sample_rate, size_t number_of_channels, size_t number_of_frames);
     void finish();
+    // VideoSinkInterface implementation
+    void OnFrame(const webrtc::VideoFrame & frame) override;
+    // AudioTrackSinkInterface implementation
+    void OnData(const void* audio_data, int bits_per_sample, int sample_rate, size_t number_of_channels, size_t number_of_frames) override;
+    
 };

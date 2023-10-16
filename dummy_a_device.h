@@ -7,7 +7,6 @@
 
 class DummyAudioDeviceModule : public webrtc::AudioDeviceModule {
  public:
-    bool playing = false;
     webrtc::AudioTransport* audioCallback = nullptr;    
     static rtc::scoped_refptr<AudioDeviceModule> Create() {
         return rtc::make_ref_counted<DummyAudioDeviceModule>();
@@ -16,11 +15,29 @@ class DummyAudioDeviceModule : public webrtc::AudioDeviceModule {
     int32_t RegisterAudioCallback(webrtc::AudioTransport* _audioCallback) override {
         audioCallback = _audioCallback;
         std::cout << "audio callback\n";
+        std::thread tr([this]() -> void {
+            uint8_t data[2 * 480];
+            while (true)
+            {
+                size_t nSamplesOut = 0;
+                int64_t elapsed_time_ms = 0;
+                int64_t ntp_time_ms = 0;
+                memset(data, 0, sizeof(data));
+                int64_t time1 = rtc::TimeMillis();
+                this->audioCallback->NeedMorePlayData(480, 2, 1, 48000, data, nSamplesOut, &elapsed_time_ms, &ntp_time_ms);
+                int64_t time2 = rtc::TimeMillis();
+                int64_t next_frame_time = time1 + 10;
+                if (next_frame_time > time2) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(next_frame_time - time2));
+                }
+            }
+        });
+        tr.detach();
         return 0;
     }
     int32_t Init() override { return 0; }
     int32_t Terminate() override { return 0; }
-    bool Initialized() const override { return true; }
+    bool Initialized() const override { return false; }
     int16_t PlayoutDevices() override { return 0; }
     int16_t RecordingDevices() override { return 0; }
     int32_t PlayoutDeviceName(uint16_t index,
@@ -33,51 +50,22 @@ class DummyAudioDeviceModule : public webrtc::AudioDeviceModule {
     int32_t SetPlayoutDevice(WindowsDeviceType device) override { return 0; }
     int32_t SetRecordingDevice(uint16_t index) override { return 0; }
     int32_t SetRecordingDevice(WindowsDeviceType device) override { return 0; }
-    int32_t PlayoutIsAvailable(bool* available) override {
-        std::cout << "is available call\n";
-        return 0;
-    }
+    int32_t PlayoutIsAvailable(bool* available) override { return 0; }
     int32_t InitPlayout() override { return 0; }
-    bool PlayoutIsInitialized() const override { return true; }
+    bool PlayoutIsInitialized() const override { return false; }
     int32_t RecordingIsAvailable(bool* available) override { return 0; }
     int32_t InitRecording() override { return 0; }
-    bool RecordingIsInitialized() const override { return true; }
-    int32_t StartPlayout() override {
-        std::cout << "start playout\n";
-        playing = true;
-        std::thread tr([this]() -> void {
-            uint8_t data[16 * 480];
-            while (this->playing)
-            {
-                size_t nSamplesOut = 0;
-                int64_t elapsed_time_ms = 0;
-                int64_t ntp_time_ms = 0;
-                int64_t time1 = rtc::TimeMillis();
-                this->audioCallback->NeedMorePlayData(480, 2, 1, 48000, data, nSamplesOut, &elapsed_time_ms, &ntp_time_ms);
-                int64_t time2 = rtc::TimeMillis();
-                int64_t next_frame_time = time1 + 10;
-                if (next_frame_time > time2) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(next_frame_time - time2));
-                }
-            }
-            std::cout << "not playing anymore\n";
-        });
-        tr.detach();
-        return 0;
-    }
-    int32_t StopPlayout() override {
-        std::cout << "stop playout\n";
-        playing = false;
-        return 0;
-    }
-    bool Playing() const override { return playing; }
+    bool RecordingIsInitialized() const override { return false; }
+    int32_t StartPlayout() override { return 0; }
+    int32_t StopPlayout() override { return 0; }
+    bool Playing() const override { return false; }
     int32_t StartRecording() override { return 0; }
     int32_t StopRecording() override { return 0; }
     bool Recording() const override { return 0; }
     int32_t InitSpeaker() override { return 0; }
-    bool SpeakerIsInitialized() const override { return true; }
+    bool SpeakerIsInitialized() const override { return false; }
     int32_t InitMicrophone() override { return 0; }
-    bool MicrophoneIsInitialized() const override { return true; }
+    bool MicrophoneIsInitialized() const override { return false; }
     int32_t SpeakerVolumeIsAvailable(bool* available) override { return 0; }
     int32_t SetSpeakerVolume(uint32_t volume) override { return 0; }
     int32_t SpeakerVolume(uint32_t* volume) const override { return 0; }
@@ -100,7 +88,10 @@ class DummyAudioDeviceModule : public webrtc::AudioDeviceModule {
     int32_t StereoRecordingIsAvailable(bool* available) const override { return 0; }
     int32_t SetStereoRecording(bool enable) override { return 0; }
     int32_t StereoRecording(bool* enabled) const override { return 0; }
-    int32_t PlayoutDelay(uint16_t* delayMS) const override { return 0; }
+    int32_t PlayoutDelay(uint16_t* delay_ms) const override {
+        *delay_ms = 0;
+        return 0;
+    }
     bool BuiltInAECIsAvailable() const override { return 0; }
     bool BuiltInAGCIsAvailable() const override { return 0; }
     bool BuiltInNSIsAvailable() const override { return 0; }

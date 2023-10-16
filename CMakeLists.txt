@@ -24,6 +24,8 @@ set(
   TARGETS
     main_2.cpp
     fftest.cpp
+
+    # main.cpp
 )
 
 add_executable( webrtcexample ${TARGETS} )

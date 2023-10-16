@@ -33,62 +33,9 @@
 
 #include <thread>
 
-#include "modules/audio_device/include/fake_audio_device.h"
 #include "dummy_a_device.h"
 
 using std::cout;
-
-class MyFrameTransformer {
-public:
-    uint8_t argbdata[1920 * 1080 * 4];
-    long counter = 0;
-    webrtc::VideoFrame transformFrame(const webrtc::VideoFrame & frame) {
-        rtc::scoped_refptr<webrtc::I420BufferInterface> buffer(frame.video_frame_buffer()->ToI420());
-        int width = buffer->width();
-        int height = buffer->height();
-        if (width > 1920 || height > 1080) {
-            // it won't fit to argbdata, just returning the frame without changes
-            return frame;
-        }
-        // there were some warnings in libwebrtc that is works only for little endian
-        libyuv::I420ToARGB(buffer->DataY(), buffer->StrideY(),
-            buffer->DataU(), buffer->StrideU(),
-            buffer->DataV(), buffer->StrideV(),
-            argbdata, width * 4, width, height);
-        // now we have array of pixels and can do anything with it
-
-        // just painting moving diagonally 100x100 square on top of the received image as a test
-        int h_start = counter % (height - 100);
-        int w_start = counter % (width - 100);
-        for (int h = h_start; h < h_start + 100; h++) {
-            for (int w = w_start; w < w_start + 100; w++) {
-                int pixIndex = h * width * 4 + w * 4;
-                argbdata[pixIndex] = 255; // b
-                argbdata[pixIndex + 1] = 255; // g
-                argbdata[pixIndex + 2] = 0; // r
-                argbdata[pixIndex + 3] = 255; // a
-            }
-        }
-        counter++;
-
-        // putting it to a new frame
-        rtc::scoped_refptr<webrtc::I420Buffer> new_buffer = webrtc::I420Buffer::Create(width, height);
-        libyuv::ARGBToI420(argbdata, width * 4,
-            new_buffer->MutableDataY(), buffer->StrideY(),
-            new_buffer->MutableDataU(), buffer->StrideU(),
-            new_buffer->MutableDataV(), buffer->StrideV(),
-            width, height);
-        
-        webrtc::VideoFrame new_frame =
-          webrtc::VideoFrame::Builder()
-              .set_video_frame_buffer(new_buffer)
-              .set_rotation(frame.rotation())
-              .set_timestamp_us(frame.timestamp_us())
-              .set_id(frame.id())
-              .build();
-        return new_frame;
-    }
-};
 
 
 class DummySetSessionDescriptionObserver : public webrtc::SetSessionDescriptionObserver {
@@ -104,130 +51,18 @@ public:
     }
 };
 
-class MyVideoTrackSource : public webrtc::VideoTrackSourceInterface {
-public:
-    rtc::VideoSinkInterface<webrtc::VideoFrame>* sink_to_write;
-    // maybe mutex is needed here
-    // call this method to send frame
-    void writeFrameToSink(const webrtc::VideoFrame& frame) {
-        if (!sink_to_write) return;
-        sink_to_write->OnFrame(frame);
-    }
-    // VideoTrackSourceInterface implementation
-    void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink, const rtc::VideoSinkWants& wants) override {
-        sink_to_write = sink;
-        cout << std::this_thread::get_id() << " sink added to my video source\n";
-    }
-    void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink) override {
-        sink_to_write = nullptr;
-    }
-    // just mock implementation of the rest of the methods
-    webrtc::MediaSourceInterface::SourceState state() const override {
-        return webrtc::MediaSourceInterface::SourceState::kLive;
-    }
-    bool remote() const override { return false; }
-    bool is_screencast() const override { return false; }
-    absl::optional<bool> needs_denoising() const override { return absl::nullopt; }
-    bool GetStats(Stats* stats) override { return false; }
-    bool SupportsEncodedOutput() const override { return false; }
-    void GenerateKeyFrame() override {}
-    void AddEncodedSink(rtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>* sink) override {}
-    void RemoveEncodedSink(rtc::VideoSinkInterface<webrtc::RecordableEncodedFrame>* sink) override {}
-    // probably need to gather and notify these observers on state changes
-    void RegisterObserver(webrtc::ObserverInterface* observer) override {}
-    void UnregisterObserver(webrtc::ObserverInterface* observer) override {}
-};
-
-class MyAudioSource : public webrtc::AudioSourceInterface {
-public:
-    webrtc::AudioTrackSinkInterface* sink_to_write;
-    // AudioSourceInterface implementation
-    void AddSink(webrtc::AudioTrackSinkInterface* sink) override {
-        sink_to_write = sink;
-    }
-    void RemoveSink(webrtc::AudioTrackSinkInterface* sink) override {
-        sink_to_write = nullptr;
-    }
-    // just mock implementation of the rest of the methods
-    webrtc::MediaSourceInterface::SourceState state() const override {
-        return webrtc::MediaSourceInterface::SourceState::kLive;
-    }
-    cricket::AudioOptions opt;
-    const cricket::AudioOptions options() const override {
-        return opt;
-    }
-    bool remote() const override { return false; }
-    // probably need to gather and notify these observers on state changes
-    void RegisterObserver(webrtc::ObserverInterface* observer) override {}
-    void UnregisterObserver(webrtc::ObserverInterface* observer) override {}
-};
-
-class VideoRenderer : public rtc::VideoSinkInterface<webrtc::VideoFrame> {
-public:
-    MyFrameTransformer transformer;
-    rtc::scoped_refptr<webrtc::VideoTrackInterface> rendered_track;
-    MyVideoTrackSource * destinationToWrite;
-    VideoRecorder * recorder;
-    VideoRenderer(webrtc::VideoTrackInterface* track_to_render, MyVideoTrackSource * destination, VideoRecorder * rec):
-        rendered_track(track_to_render), destinationToWrite(destination), recorder(rec)
-    {
-        rendered_track->AddOrUpdateSink(this, rtc::VideoSinkWants());
-        cout << "created video renderer\n";
-    }
-    ~VideoRenderer() {
-        rendered_track->RemoveSink(this);
-        cout << "destroyed video renderer\n";
-    }
-    // VideoSinkInterface implementation
-    void OnFrame(const webrtc::VideoFrame& frame) override {
-        // here i can write frame before sending it back
-
-        recorder->recordFrame(frame);
-        destinationToWrite->writeFrameToSink(transformer.transformFrame(frame));
-    }
-};
-
-class AudioRenderer : public webrtc::AudioTrackSinkInterface {
-public:
-    rtc::scoped_refptr<webrtc::AudioTrackInterface> rendered_track;
-    VideoRecorder * recorder;
-    AudioRenderer(webrtc::AudioTrackInterface* track_to_render, VideoRecorder * rec):
-        rendered_track(track_to_render), recorder(rec) {
-        rendered_track->AddSink(this);
-        cout << "created audio renderer\n";
-    }
-    ~AudioRenderer() {
-        rendered_track->RemoveSink(this);
-        cout << "destroyed audio renderer\n";
-    }
-    // AudioTrackSinkInterface implementation
-    void OnData(const void* audio_data, int bits_per_sample, int sample_rate, size_t number_of_channels, size_t number_of_frames) override {
-        cout << "on audio data \n";
-        recorder->recordAFrame(audio_data, bits_per_sample, sample_rate, number_of_channels, number_of_frames);
-    }
-};
 
 class MyWebrtcHolder : public webrtc::PeerConnectionObserver, webrtc::CreateSessionDescriptionObserver
 {
 public:
     rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
     rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection;
-    rtc::scoped_refptr<MyVideoTrackSource> videoSource;
-    rtc::scoped_refptr<MyAudioSource> audioSource;
     ix::WebSocket socket;
-
-    VideoRecorder videoRecorder;
+    MyVideoRecorder videoRecorder;
     void run() {
         cout << std::this_thread::get_id() << " start...\n";
         rtc::InitializeSSL();
-        std::string shouldMakeOffer;
-        cout << "Should make offer? (y/n)\n";
-        std::cin >> shouldMakeOffer;
-        if (shouldMakeOffer == "y") {
-            cout << "will make an offer in 5 seconds...\n";
-        } else {
-            cout << "will wait for an offer...\n";
-        }
+
         auto signaling_thread = rtc::Thread::CreateWithSocketServer();
         signaling_thread->Start();
 
@@ -264,31 +99,6 @@ public:
             return;
         }
         peer_connection = std::move(error_or_peer_connection.value());
-
-        videoSource = rtc::make_ref_counted<MyVideoTrackSource>();
-        rtc::scoped_refptr<webrtc::VideoTrackInterface> video_track(
-            factory->CreateVideoTrack(videoSource, "video_label")
-        );
-        auto result_or_error = peer_connection->AddTrack(video_track, {"stream_id"});
-        if (!result_or_error.ok()) {
-            cout << "Failed to add video track to PeerConnection\n";
-        }
-
-        audioSource = rtc::make_ref_counted<MyAudioSource>();
-        rtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track(
-            factory->CreateAudioTrack("audio_label", audioSource.get())
-        );
-        result_or_error = peer_connection->AddTrack(audio_track, {"stream_id"});
-        if (!result_or_error.ok()) {
-            cout << "Failed to add audio track to PeerConnection\n";
-        }
-
-        if (shouldMakeOffer == "y") {
-            signaling_thread->PostDelayedTask([&]() -> void {
-                cout << std::this_thread::get_id() << " delayed create offer task " << '\n';
-                peer_connection->CreateOffer(this, webrtc::PeerConnectionInterface::RTCOfferAnswerOptions());
-            }, webrtc::TimeDelta::Seconds(5));
-        }
 
         socket.setOnMessageCallback([&](const ix::WebSocketMessagePtr& msg) {
             if (msg->type == ix::WebSocketMessageType::Message)
@@ -402,18 +212,13 @@ public:
         auto* track = receiver->track().release();
         if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
             auto* video_track = static_cast<webrtc::VideoTrackInterface*>(track);
-            // just test, this needs to be deleted when is not necessary
-            new VideoRenderer(video_track, videoSource.get(), &videoRecorder);
+            videoRecorder.setVideoTrack(video_track);
         }
         if (track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
             auto* audio_track = static_cast<webrtc::AudioTrackInterface*>(track);
-            // just test, this needs to be deleted when is not necessary
-            new AudioRenderer(audio_track, &videoRecorder);
+            videoRecorder.setAudioTrack(audio_track);
         }
         track->Release();
-
-        // or just send the track back
-        // peer_connection->AddTrack(receiver->track(), {"stream_id"});
     }
     void OnIceCandidate(const webrtc::IceCandidateInterface *candidate) override {
         cout << std::this_thread::get_id() << " found candidate\n";
@@ -422,7 +227,7 @@ public:
         candidateObj["sdpMLineIndex"] = candidate->sdp_mline_index();
         std::string sdp;
         if (!candidate->ToString(&sdp)) {
-            cout << "Failed to serialize candidate";
+            cout << "Failed to serialize candidate\n";
             return;
         }
         candidateObj["candidate"] = sdp;
@@ -444,7 +249,9 @@ public:
         cout << "signaling change " << webrtc::PeerConnectionInterface::AsString(new_state) << "\n";
     }
     void OnTrack(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) override {}
-    void OnRemoveTrack(rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) override {}
+    void OnRemoveTrack(rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) override {
+        cout << "onremove track\n";
+    }
     void OnDataChannel(rtc::scoped_refptr<webrtc::DataChannelInterface> channel) override {}
     void OnRenegotiationNeeded() override {}
     void OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState new_state) override {}

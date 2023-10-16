@@ -6,10 +6,22 @@
 
 using std::cout;
 
+void MyVideoRecorder::setVideoTrack(webrtc::VideoTrackInterface* track) {
+    video_track = track;
+    video_track->AddOrUpdateSink(this, rtc::VideoSinkWants());
+}
 
-void VideoRecorder::start() {
+void MyVideoRecorder::setAudioTrack(webrtc::AudioTrackInterface* track) {
+    audio_track = track;
+    audio_track->AddSink(this);
+}
+
+void MyVideoRecorder::start() {
     std::unique_lock lock(myMtx);
     if (started) return;
+    if (video_track == nullptr) return;
+    if (audio_track == nullptr) return;
+
     width = 640;
     height = 480;
     v_context = nullptr;
@@ -147,7 +159,7 @@ void VideoRecorder::start() {
 //     samples_count += dst_nb_samples;
 // }
 
-void VideoRecorder::recordFrame(const webrtc::VideoFrame & frame) {
+void MyVideoRecorder::OnFrame(const webrtc::VideoFrame & frame) {
     std::unique_lock lock(myMtx);
     if (!started) return;
     // rtc::scoped_refptr<webrtc::I420BufferInterface> buffer(frame.video_frame_buffer()->ToI420());
@@ -187,7 +199,7 @@ void VideoRecorder::recordFrame(const webrtc::VideoFrame & frame) {
     }
 }
 
-void VideoRecorder::writeASample(float value) {
+void MyVideoRecorder::writeASample(float value) {
     float * q = (float*)a_frame->data[0];
     int samples_written_in_frame = total_written_a_samples % a_frame->nb_samples;
     q[samples_written_in_frame] = value;
@@ -208,7 +220,7 @@ void VideoRecorder::writeASample(float value) {
     }
 }
 
-void VideoRecorder::recordAFrame(const void* audio_data, int bits_per_sample, int sample_rate, size_t number_of_channels, size_t number_of_frames) {
+void MyVideoRecorder::OnData(const void* audio_data, int bits_per_sample, int sample_rate, size_t number_of_channels, size_t number_of_frames) {
     std::unique_lock lock(myMtx);
     if (!started) return;
     if (bits_per_sample != 16) {
@@ -232,7 +244,7 @@ void VideoRecorder::recordAFrame(const void* audio_data, int bits_per_sample, in
     }
 }
 
-void VideoRecorder::finish() {
+void MyVideoRecorder::finish() {
     std::unique_lock lock(myMtx);
     if (!started) return;
     av_write_trailer(oc);
