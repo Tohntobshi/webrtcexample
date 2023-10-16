@@ -102,11 +102,6 @@ void MyVideoRecorder::start() {
     ret = avcodec_parameters_from_context(v_stream->codecpar, v_context);
 
     ret = avcodec_open2(a_context, a_codec, NULL);
-    // int nb_samples = a_context->frame_size;
-    // if (a_context->codec->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE) {
-    //     cout << "audio codec supports variable frame size\n";
-    //     nb_samples = 10000;
-    // }
     
     a_frame = av_frame_alloc();
     a_frame->format = a_context->sample_fmt;
@@ -116,48 +111,13 @@ void MyVideoRecorder::start() {
     a_frame->nb_samples = a_context->frame_size;
     ret = av_frame_get_buffer(a_frame, 0);
 
-    // a_t_frame = av_frame_alloc();
-    // a_t_frame->format = AV_SAMPLE_FMT_S16;
-    // av_channel_layout_copy(&(a_t_frame->ch_layout), &(a_context->ch_layout));
-    // a_t_frame->sample_rate = a_context->sample_rate;
-    // a_t_frame->nb_samples = nb_samples;
-    // ret = av_frame_get_buffer(a_t_frame, 0);
-
     ret = avcodec_parameters_from_context(a_stream->codecpar, a_context);
-    // swr_ctx = swr_alloc();
-    // av_opt_set_chlayout(swr_ctx, "in_chlayout", &(a_context->ch_layout), 0);
-    // av_opt_set_int(swr_ctx, "in_sample_rate", a_context->sample_rate, 0);
-    // av_opt_set_sample_fmt(swr_ctx, "in_sample_fmt", AV_SAMPLE_FMT_S16, 0);
-    // av_opt_set_chlayout(swr_ctx, "out_chlayout", &(a_context->ch_layout), 0);
-    // av_opt_set_int(swr_ctx, "out_sample_rate", a_context->sample_rate, 0);
-    // av_opt_set_sample_fmt(swr_ctx, "out_sample_fmt", a_context->sample_fmt, 0);
-    // ret = swr_init(swr_ctx);
 
     ret = avio_open(&(oc->pb), filename.c_str(), AVIO_FLAG_WRITE);
     ret = avformat_write_header(oc, &opt);
 
     started = true;
 }
-
-// void fill_mock_a_frame() {
-//     int j, i, v;
-//     int16_t *q = (int16_t*)a_t_frame->data[0];
-//     for (j = 0; j < a_t_frame->nb_samples; j++) {
-//         v = (int)(sin(t) * 10000);
-//         for (i = 0; i < a_context->ch_layout.nb_channels; i++)
-//             *q++ = v;
-//         t += tincr;
-//         tincr += tincr2;
-//     }
-//     a_t_frame->pts = a_pts;
-//     a_pts += a_t_frame->nb_samples;
-//     int dst_nb_samples = av_rescale_rnd(swr_get_delay(swr_ctx, a_context->sample_rate) + a_t_frame->nb_samples,
-//                                     a_context->sample_rate, a_context->sample_rate, AV_ROUND_UP);
-//     int ret = av_frame_make_writable(a_frame);
-//     ret = swr_convert(swr_ctx, a_frame->data, dst_nb_samples, (const uint8_t **)a_t_frame->data, a_t_frame->nb_samples);
-//     a_frame->pts = av_rescale_q(samples_count, (AVRational){1, a_context->sample_rate}, a_context->time_base);
-//     samples_count += dst_nb_samples;
-// }
 
 void MyVideoRecorder::OnFrame(const webrtc::VideoFrame & frame) {
     std::unique_lock lock(myMtx);
@@ -199,7 +159,9 @@ void MyVideoRecorder::OnFrame(const webrtc::VideoFrame & frame) {
     }
 }
 
-void MyVideoRecorder::writeASample(float value) {
+void MyVideoRecorder::writeASample(float value, int64_t pts) {
+    // because aac audio codec requires samples as floats
+    // that logic may not be suitable for other codecs
     float * q = (float*)a_frame->data[0];
     int samples_written_in_frame = total_written_a_samples % a_frame->nb_samples;
     q[samples_written_in_frame] = value;
@@ -207,7 +169,7 @@ void MyVideoRecorder::writeASample(float value) {
     samples_written_in_frame++;
 
     if (samples_written_in_frame == a_frame->nb_samples) {
-        a_frame->pts = total_written_a_samples - a_frame->nb_samples;
+        a_frame->pts = pts - a_frame->nb_samples;
         avcodec_send_frame(a_context, a_frame);
         int ret = 0;
         while (ret >= 0) {
@@ -235,12 +197,15 @@ void MyVideoRecorder::OnData(const void* audio_data, int bits_per_sample, int sa
         cout << "unexpected number of audio channels\n";
         return;
     }
-
+    auto current_time = std::chrono::system_clock::now();
+    std::chrono::duration<double> frame_time = current_time - start_time;
+    double time = frame_time.count();
+    int64_t pts = time * sample_rate;
     for (int i = 0; i < number_of_frames; i++) {
         int16_t * data = (int16_t *)audio_data;
         int16_t sample = data[i];
         float fl_sample = (float)sample / 32767.0F;
-        writeASample(fl_sample);
+        writeASample(fl_sample, pts + i);
     }
 }
 
@@ -255,9 +220,7 @@ void MyVideoRecorder::finish() {
 
     avcodec_free_context(&a_context);
     av_frame_free(&a_frame);
-    // av_frame_free(&a_t_frame);
     av_packet_free(&a_packet);
-    // swr_free(&swr_ctx);
 
     avio_closep(&oc->pb);
     avformat_free_context(oc);

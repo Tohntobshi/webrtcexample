@@ -3,14 +3,9 @@
 #include <chrono>
 extern "C"
 {
-// #include <libavutil/channel_layout.h>
 #include <libavutil/opt.h>
-// #include <libavutil/mathematics.h>
-// #include <libavutil/timestamp.h>
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-// #include <libswscale/swscale.h>
-#include <libswresample/swresample.h>
 }
 
 class MyVideoRecorder: public rtc::VideoSinkInterface<webrtc::VideoFrame>, public webrtc::AudioTrackSinkInterface {
@@ -31,15 +26,12 @@ class MyVideoRecorder: public rtc::VideoSinkInterface<webrtc::VideoFrame>, publi
     AVPacket *a_packet;
     AVStream *a_stream;
     AVFrame *a_frame;
-    // AVFrame *a_t_frame;
-    struct SwrContext *swr_ctx;
     // -------------------
     AVDictionary *opt;
-    int a_pts;
     bool started = false;
     std::chrono::system_clock::time_point start_time;
     int last_v_pts;
-    void writeASample(float sample);
+    void writeASample(float sample, int64_t pts);
     int total_written_a_samples;
     webrtc::VideoTrackInterface* video_track;
     webrtc::AudioTrackInterface* audio_track;
