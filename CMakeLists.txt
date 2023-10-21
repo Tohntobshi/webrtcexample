@@ -22,10 +22,10 @@ include_directories(
 
 set(
   TARGETS
-    main_2.cpp
-    fftest.cpp
+    # main_2.cpp
+    # fftest.cpp
 
-    # main.cpp
+    main.cpp
 )
 
 add_executable( webrtcexample ${TARGETS} )

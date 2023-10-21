@@ -31,6 +31,8 @@
 
 #include <thread>
 
+#include "dummy_a_device.h"
+
 using std::cout;
 
 class MyFrameTransformer {
@@ -90,9 +92,7 @@ public:
     static rtc::scoped_refptr<DummySetSessionDescriptionObserver> Create() {
         return rtc::make_ref_counted<DummySetSessionDescriptionObserver>();
     }
-    void OnSuccess() {
-        cout << std::this_thread::get_id() << " set description callback\n";
-    }
+    void OnSuccess() {}
     void OnFailure(webrtc::RTCError error) {
         cout << "set description fail\n";
     }
@@ -100,7 +100,7 @@ public:
 
 class MyVideoTrackSource : public webrtc::VideoTrackSourceInterface {
 public:
-    rtc::VideoSinkInterface<webrtc::VideoFrame>* sink_to_write;
+    rtc::VideoSinkInterface<webrtc::VideoFrame>* sink_to_write = nullptr;
     // maybe mutex is needed here
     // call this method to send frame
     void writeFrameToSink(const webrtc::VideoFrame& frame) {
@@ -110,9 +110,10 @@ public:
     // VideoTrackSourceInterface implementation
     void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink, const rtc::VideoSinkWants& wants) override {
         sink_to_write = sink;
-        cout << std::this_thread::get_id() << " sink added to my video source\n";
+        cout << "sink updated or added to my video source\n";
     }
     void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink) override {
+        cout << "sink removed from my video source\n";
         sink_to_write = nullptr;
     }
     // just mock implementation of the rest of the methods
@@ -132,23 +133,48 @@ public:
     void UnregisterObserver(webrtc::ObserverInterface* observer) override {}
 };
 
+class MyAudioSource : public webrtc::AudioSourceInterface {
+public:
+    webrtc::AudioTrackSinkInterface* sink_to_write = nullptr;
+    // call this method to send data
+    void writeDataToSink(const void* audio_data,
+                      int bits_per_sample,
+                      int sample_rate,
+                      size_t number_of_channels,
+                      size_t number_of_frames) {
+        if (!sink_to_write) return;
+        sink_to_write->OnData(audio_data, bits_per_sample, sample_rate, number_of_channels, number_of_frames);
+    }
+    // AudioSourceInterface implementation
+    void AddSink(webrtc::AudioTrackSinkInterface* sink) override {
+        sink_to_write = sink;
+        cout << "sink added to my audio source\n";
+    }
+    void RemoveSink(webrtc::AudioTrackSinkInterface* sink) override {
+        sink_to_write = nullptr;
+        cout << "sink removed from my audio source\n";
+    }
+    const cricket::AudioOptions options() const override {
+        return cricket::AudioOptions();
+    }
+    webrtc::MediaSourceInterface::SourceState state() const override {
+        return webrtc::MediaSourceInterface::SourceState::kLive;
+    }
+    bool remote() const override { return false; }
+    // probably need to gather and notify these observers on state changes
+    void RegisterObserver(webrtc::ObserverInterface* observer) override {}
+    void UnregisterObserver(webrtc::ObserverInterface* observer) override {}
+};
+
 class VideoRenderer : public rtc::VideoSinkInterface<webrtc::VideoFrame> {
 public:
-    rtc::scoped_refptr<webrtc::VideoTrackInterface> rendered_track;
     MyVideoTrackSource * destinationToWrite;
     MyFrameTransformer transformer;
-    VideoRenderer(webrtc::VideoTrackInterface* track_to_render, MyVideoTrackSource * destination): rendered_track(track_to_render), destinationToWrite(destination) {
-        rendered_track->AddOrUpdateSink(this, rtc::VideoSinkWants());
-        cout << "created video renderer\n";
-    }
-    ~VideoRenderer() {
-        rendered_track->RemoveSink(this);
-        cout << "destroyed video renderer\n";
-    }
+    VideoRenderer(MyVideoTrackSource * destination): destinationToWrite(destination) {}
     // VideoSinkInterface implementation
     void OnFrame(const webrtc::VideoFrame& frame) override {
         // this is called on each received frame
-        // cout << std::this_thread::get_id() << " on frame\n";
+        // cout << " on frame\n";
         // just writing received frames to my source of frames to send back
         destinationToWrite->writeFrameToSink(transformer.transformFrame(frame));
     }    
@@ -156,19 +182,15 @@ public:
 
 class AudioRenderer : public webrtc::AudioTrackSinkInterface {
 public:
-    rtc::scoped_refptr<webrtc::AudioTrackInterface> rendered_track;
-    AudioRenderer(webrtc::AudioTrackInterface* track_to_render): rendered_track(track_to_render) {
-        rendered_track->AddSink(this);
-        cout << "created audio renderer\n";
-    }
-    ~AudioRenderer() {
-        rendered_track->RemoveSink(this);
-        cout << "destroyed audio renderer\n";
-    }
+    MyAudioSource * destinationToWrite;
+    AudioRenderer(MyAudioSource * destination): destinationToWrite(destination) {}
     // AudioTrackSinkInterface implementation
     void OnData(const void* audio_data, int bits_per_sample, int sample_rate, size_t number_of_channels, size_t number_of_frames) override {
-        // pretending to do something on receiving audio data
+        // this is called every ~10 ms with audio data
         // cout << "on audio data \n";
+
+        // we are just sending back audio data, beware of echo
+        destinationToWrite->writeDataToSink(audio_data, bits_per_sample, sample_rate, number_of_channels, number_of_frames);
     }
 };
 
@@ -178,9 +200,11 @@ public:
     rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
     rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection;
     rtc::scoped_refptr<MyVideoTrackSource> videoSource;
+    rtc::scoped_refptr<MyAudioSource> audioSource;
+    std::unique_ptr<VideoRenderer> videoRenderer;
+    std::unique_ptr<AudioRenderer> audioRenderer;
     ix::WebSocket socket;
     void run() {
-        cout << std::this_thread::get_id() << " start...\n";
         rtc::InitializeSSL();
         std::string shouldMakeOffer;
         cout << "Should make offer? (y/n)\n";
@@ -195,7 +219,7 @@ public:
 
         factory = webrtc::CreatePeerConnectionFactory(
             nullptr /* network_thread */, nullptr /* worker_thread */, signaling_thread.get() /* signaling_thread*/,
-            nullptr /* default_adm */,
+            DummyAudioDeviceModule::Create() /* default_adm */,
             webrtc::CreateBuiltinAudioEncoderFactory(),
             webrtc::CreateBuiltinAudioDecoderFactory(),
             std::make_unique<webrtc::VideoEncoderFactoryTemplate<
@@ -233,16 +257,24 @@ public:
         if (!result_or_error.ok()) {
             cout << "Failed to add video track to PeerConnection\n";
         }
+
+        audioSource = rtc::make_ref_counted<MyAudioSource>();
         rtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track(
-            factory->CreateAudioTrack("audio_label", factory->CreateAudioSource(cricket::AudioOptions()).get()));
+            factory->CreateAudioTrack("audio_label", audioSource.get())
+        );
         result_or_error = peer_connection->AddTrack(audio_track, {"stream_id"});
         if (!result_or_error.ok()) {
             cout << "Failed to add audio track to PeerConnection\n";
         }
 
+        // we are passing source to renderer to send the received data back
+        videoRenderer = std::make_unique<VideoRenderer>(videoSource.get());
+        audioRenderer = std::make_unique<AudioRenderer>(audioSource.get());
+
+
         if (shouldMakeOffer == "y") {
             signaling_thread->PostDelayedTask([&]() -> void {
-                cout << std::this_thread::get_id() << " delayed create offer task " << '\n';
+                cout << "delayed create offer task " << '\n';
                 peer_connection->CreateOffer(this, webrtc::PeerConnectionInterface::RTCOfferAnswerOptions());
             }, webrtc::TimeDelta::Seconds(5));
         }
@@ -258,15 +290,12 @@ public:
                     cout << "couldn't parse message\n";
                     return;
                 }
-                // need to check how it will handle invalid json or with wrong shape
-                // cout << "message " << str << '\n';
 
                 auto offer = jmessage.get("offer", "");
                 if (offer.isObject()) {
                     std::string type_str = offer.get("type", "").asString();
                     if (type_str == "offer") {
                         std::string sdp = offer.get("sdp", "").asString();
-                        cout << std::this_thread::get_id() << " received sdp offer " << '\n';
                         absl::optional<webrtc::SdpType> type_maybe = webrtc::SdpTypeFromString(type_str);
                         webrtc::SdpParseError error;
                         std::unique_ptr<webrtc::SessionDescriptionInterface> session_description =
@@ -287,7 +316,6 @@ public:
                     std::string type_str = answer.get("type", "").asString();
                     if (type_str == "answer") {
                         std::string sdp = answer.get("sdp", "").asString();
-                        cout << std::this_thread::get_id() << " received sdp answer " << '\n';
                         absl::optional<webrtc::SdpType> type_maybe = webrtc::SdpTypeFromString(type_str);
                         webrtc::SdpParseError error;
                         std::unique_ptr<webrtc::SessionDescriptionInterface> session_description =
@@ -308,8 +336,6 @@ public:
                     int sdp_mlineindex = candidateObj.get("sdpMLineIndex", "").asInt();
                     std::string sdp = candidateObj.get("candidate", "").asString();
                     webrtc::SdpParseError error;
-                    // cout << "received " << sdp_mid << " " << sdp_mlineindex << "\n";
-                    // cout << sdp << "\n";
                     std::unique_ptr<webrtc::IceCandidateInterface> candidate(
                         webrtc::CreateIceCandidate(sdp_mid, sdp_mlineindex, sdp, &error));
                     if (!candidate.get()) {
@@ -320,7 +346,7 @@ public:
                         cout << "Failed to apply the received candidate\n";
                         return;
                     }
-                    cout << std::this_thread::get_id() << " Applied the received candidate\n";
+                    // cout << "Applied the received candidate\n";
                     return;
                 }
             }
@@ -331,7 +357,7 @@ public:
     }
     // CreateSessionDescriptionObserver
     void OnSuccess(webrtc::SessionDescriptionInterface* desc) override {
-        cout << std::this_thread::get_id() << " description created\n";
+        // cout << "description created\n";
         peer_connection->SetLocalDescription(
             DummySetSessionDescriptionObserver::Create().get(), desc);
 
@@ -355,17 +381,17 @@ public:
         rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
         const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>> &
             streams) override {
-        cout << std::this_thread::get_id() << " on add track\n";
+        cout << "on add track\n";
         auto* track = receiver->track().release();
         if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
             auto* video_track = static_cast<webrtc::VideoTrackInterface*>(track);
             // just test, this needs to be deleted when is not necessary
-            new VideoRenderer(video_track, videoSource.get());
+            video_track->AddOrUpdateSink(videoRenderer.get(), rtc::VideoSinkWants());
         }
         if (track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
             auto* audio_track = static_cast<webrtc::AudioTrackInterface*>(track);
             // just test, this needs to be deleted when is not necessary
-            new AudioRenderer(audio_track);
+            audio_track->AddSink(audioRenderer.get());
         }
         track->Release();
 
@@ -373,7 +399,7 @@ public:
         // peer_connection->AddTrack(receiver->track(), {"stream_id"});
     }
     void OnIceCandidate(const webrtc::IceCandidateInterface *candidate) override {
-        cout << std::this_thread::get_id() << " found candidate\n";
+        // cout << "found candidate\n";
         Json::Value candidateObj;
         candidateObj["sdpMid"] = candidate->sdp_mid();
         candidateObj["sdpMLineIndex"] = candidate->sdp_mline_index();
@@ -392,7 +418,7 @@ public:
         cout << "connection change " << webrtc::PeerConnectionInterface::AsString(new_state) << "\n";
     }
     void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState new_state) override {
-        cout << "signaling change " << webrtc::PeerConnectionInterface::AsString(new_state) << "\n";
+        // cout << "signaling change " << webrtc::PeerConnectionInterface::AsString(new_state) << "\n";
     }
     void OnTrack(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) override {}
     void OnRemoveTrack(rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) override {}
@@ -402,10 +428,10 @@ public:
     void OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState new_state) override {}
     void OnIceConnectionReceivingChange(bool receiving) override {}
     void OnStandardizedIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState new_state) override {
-        cout << "ice connection change " << webrtc::PeerConnectionInterface::AsString(new_state) << "\n";
+        // cout << "ice connection change " << webrtc::PeerConnectionInterface::AsString(new_state) << "\n";
     }
     void OnIceCandidateError(const std::string& address, int port, const std::string& url, int error_code, const std::string& error_text) override {
-        cout << "ice candidate error\n";
+        // cout << "ice candidate error\n";
     }
 };
 
