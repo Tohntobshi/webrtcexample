@@ -3,8 +3,8 @@
         {
             "name": "Linux",
             "includePath": [
-                "/home/tohntobshi/webrtc/src/**",
-                "/home/tohntobshi/ffmpeg_build/include"
+                "${workspaceFolder}/vcpkg_installed/x64-linux/include",
+                "/home/tohntobshi/webrtc/src/**"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",

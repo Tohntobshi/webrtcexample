@@ -183,8 +183,12 @@ public:
     // VideoSinkInterface implementation
     void OnFrame(const webrtc::VideoFrame& frame) override {
         // this is called on each received frame
+
         // check FrameTransformer class implementation to see how to access raw rgb data of a frame
-        // just writing received frames to my source of frames to send back
+    
+        // at this point we can render these frames, record them and do anything we want with them
+
+        // in this example we modify them and send them back
         destinationToWrite->sendFrame(transformer.transformFrame(frame));
     }
 };
@@ -197,6 +201,7 @@ public:
     // AudioTrackSinkInterface implementation
     void OnData(const void* audio_data, int bits_per_sample, int sample_rate, size_t number_of_channels, size_t number_of_frames) override {
         // this is called every ~10 ms with audio data
+
         // at this point we have access to raw audio data from the counterpart
 
         // we are just sending back audio data, beware of echo

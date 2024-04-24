@@ -13,11 +13,10 @@ SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}")
 SET(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_COVERAGE_LINK_FLAGS}")
 
 include_directories(
+    ${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/include
     /home/tohntobshi/webrtc/src
     /home/tohntobshi/webrtc/src/third_party/abseil-cpp
     /home/tohntobshi/webrtc/src/third_party/libyuv/include
-
-    /home/tohntobshi/ffmpeg_build/include
 )
 
 set(
@@ -29,12 +28,9 @@ set(
 add_executable( frame_manipulation_example ${TARGETS} )
 
 target_link_libraries(frame_manipulation_example
-
-    ixwebsocket
-    z
-    jsoncpp
+    ${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/lib/libixwebsocket.a
+    ${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/lib/libz.a
+    ${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/lib/libjsoncpp.a
 
     /home/tohntobshi/webrtc/src/out/Default2/obj/libwebrtc.a
-
-    # X11
 )
