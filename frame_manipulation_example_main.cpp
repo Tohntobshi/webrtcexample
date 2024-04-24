@@ -29,13 +29,27 @@
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/convert_from.h"
 
-#include <thread>
-
-#include "dummy_a_device.h"
+#include "dummy_audio_device.h"
 
 using std::cout;
 
-class MyFrameTransformer {
+
+
+// This class does nothing but its instance is required when setting descriptions.
+class DummySetSessionDescriptionObserver : public webrtc::SetSessionDescriptionObserver {
+public:
+    static rtc::scoped_refptr<DummySetSessionDescriptionObserver> Create() {
+        return rtc::make_ref_counted<DummySetSessionDescriptionObserver>();
+    }
+    void OnSuccess() {}
+    void OnFailure(webrtc::RTCError error) {
+        cout << "set description fail\n";
+    }
+};
+
+// This class takes frames and returns modified frames.
+// This is an example of how to read, create and manipulate pixel data of each frame.
+class FrameTransformer {
 public:
     uint8_t argbdata[1920 * 1080 * 4];
     long counter = 0;
@@ -47,12 +61,13 @@ public:
             // it won't fit to argbdata, just returning the frame without changes
             return frame;
         }
-        // there were some warnings in libwebrtc that is works only for little endian
+
         libyuv::I420ToARGB(buffer->DataY(), buffer->StrideY(),
             buffer->DataU(), buffer->StrideU(),
             buffer->DataV(), buffer->StrideV(),
             argbdata, width * 4, width, height);
-        // now we have array of pixels and can do anything with it
+
+        // now "argbdata" has completely decoded array of pixels and we can do anything with it
 
         // just painting moving diagonally 100x100 square on top of the received image as a test
         int h_start = counter % (height - 100);
@@ -87,23 +102,14 @@ public:
     }
 };
 
-class DummySetSessionDescriptionObserver : public webrtc::SetSessionDescriptionObserver {
-public:
-    static rtc::scoped_refptr<DummySetSessionDescriptionObserver> Create() {
-        return rtc::make_ref_counted<DummySetSessionDescriptionObserver>();
-    }
-    void OnSuccess() {}
-    void OnFailure(webrtc::RTCError error) {
-        cout << "set description fail\n";
-    }
-};
 
+// This class in an example of a source of video data, normally such class takes frames from camera for example, and writes them to the sink.
+// But this example is device agnostic and when we want this class to send frame, we call sendFrame method explicitly with whatever data we want to send.
 class MyVideoTrackSource : public webrtc::VideoTrackSourceInterface {
 public:
     rtc::VideoSinkInterface<webrtc::VideoFrame>* sink_to_write = nullptr;
-    // maybe mutex is needed here
     // call this method to send frame
-    void writeFrameToSink(const webrtc::VideoFrame& frame) {
+    void sendFrame(const webrtc::VideoFrame& frame) {
         if (!sink_to_write) return;
         sink_to_write->OnFrame(frame);
     }
@@ -133,11 +139,13 @@ public:
     void UnregisterObserver(webrtc::ObserverInterface* observer) override {}
 };
 
+// This class is an example of audio data source. Normally it takes data from microphone and sends data to the sink but this example is device agnostic
+// and when we want to send audio chunk, we call sendAudioData explicitly with whatever data we want to send
 class MyAudioSource : public webrtc::AudioSourceInterface {
 public:
     webrtc::AudioTrackSinkInterface* sink_to_write = nullptr;
-    // call this method to send data
-    void writeDataToSink(const void* audio_data,
+    // call this method to send audio data
+    void sendAudioData(const void* audio_data,
                       int bits_per_sample,
                       int sample_rate,
                       size_t number_of_channels,
@@ -166,43 +174,45 @@ public:
     void UnregisterObserver(webrtc::ObserverInterface* observer) override {}
 };
 
-class VideoRenderer : public rtc::VideoSinkInterface<webrtc::VideoFrame> {
+// This class receives frames. Normally it should render them on the screen. But in this device agnostic example we just modify the frames and pass them back
+class VideoReceiver : public rtc::VideoSinkInterface<webrtc::VideoFrame> {
 public:
     MyVideoTrackSource * destinationToWrite;
-    MyFrameTransformer transformer;
-    VideoRenderer(MyVideoTrackSource * destination): destinationToWrite(destination) {}
+    FrameTransformer transformer;
+    VideoReceiver(MyVideoTrackSource * destination): destinationToWrite(destination) {}
     // VideoSinkInterface implementation
     void OnFrame(const webrtc::VideoFrame& frame) override {
         // this is called on each received frame
-        // cout << " on frame\n";
+        // check FrameTransformer class implementation to see how to access raw rgb data of a frame
         // just writing received frames to my source of frames to send back
-        destinationToWrite->writeFrameToSink(transformer.transformFrame(frame));
-    }    
-};
-
-class AudioRenderer : public webrtc::AudioTrackSinkInterface {
-public:
-    MyAudioSource * destinationToWrite;
-    AudioRenderer(MyAudioSource * destination): destinationToWrite(destination) {}
-    // AudioTrackSinkInterface implementation
-    void OnData(const void* audio_data, int bits_per_sample, int sample_rate, size_t number_of_channels, size_t number_of_frames) override {
-        // this is called every ~10 ms with audio data
-        // cout << "on audio data \n";
-
-        // we are just sending back audio data, beware of echo
-        destinationToWrite->writeDataToSink(audio_data, bits_per_sample, sample_rate, number_of_channels, number_of_frames);
+        destinationToWrite->sendFrame(transformer.transformFrame(frame));
     }
 };
 
-class MyWebrtcHolder : public webrtc::PeerConnectionObserver, webrtc::CreateSessionDescriptionObserver
+// This class receives audio samples. Normally it should play them. But in this device agnostic example we just pass them back
+class AudioReceiver : public webrtc::AudioTrackSinkInterface {
+public:
+    MyAudioSource * destinationToWrite;
+    AudioReceiver(MyAudioSource * destination): destinationToWrite(destination) {}
+    // AudioTrackSinkInterface implementation
+    void OnData(const void* audio_data, int bits_per_sample, int sample_rate, size_t number_of_channels, size_t number_of_frames) override {
+        // this is called every ~10 ms with audio data
+        // at this point we have access to raw audio data from the counterpart
+
+        // we are just sending back audio data, beware of echo
+        destinationToWrite->sendAudioData(audio_data, bits_per_sample, sample_rate, number_of_channels, number_of_frames);
+    }
+};
+
+class MyWebrtcApplication : public webrtc::PeerConnectionObserver, public webrtc::CreateSessionDescriptionObserver
 {
 public:
     rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
     rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection;
     rtc::scoped_refptr<MyVideoTrackSource> videoSource;
     rtc::scoped_refptr<MyAudioSource> audioSource;
-    std::unique_ptr<VideoRenderer> videoRenderer;
-    std::unique_ptr<AudioRenderer> audioRenderer;
+    std::unique_ptr<VideoReceiver> videoReceiver;
+    std::unique_ptr<AudioReceiver> audioReceiver;
     ix::WebSocket socket;
     void run() {
         rtc::InitializeSSL();
@@ -219,7 +229,7 @@ public:
 
         factory = webrtc::CreatePeerConnectionFactory(
             nullptr /* network_thread */, nullptr /* worker_thread */, signaling_thread.get() /* signaling_thread*/,
-            DummyAudioDeviceModule::Create() /* default_adm */,
+            DummyAudioDeviceModule::Create(),
             webrtc::CreateBuiltinAudioEncoderFactory(),
             webrtc::CreateBuiltinAudioDecoderFactory(),
             std::make_unique<webrtc::VideoEncoderFactoryTemplate<
@@ -268,8 +278,8 @@ public:
         }
 
         // we are passing source to renderer to send the received data back
-        videoRenderer = std::make_unique<VideoRenderer>(videoSource.get());
-        audioRenderer = std::make_unique<AudioRenderer>(audioSource.get());
+        videoReceiver = std::make_unique<VideoReceiver>(videoSource.get());
+        audioReceiver = std::make_unique<AudioReceiver>(audioSource.get());
 
 
         if (shouldMakeOffer == "y") {
@@ -355,8 +365,12 @@ public:
         socket.setUrl(url);
         socket.run();
     }
-    // CreateSessionDescriptionObserver
+
+
+
+    // CreateSessionDescriptionObserver implementation
     void OnSuccess(webrtc::SessionDescriptionInterface* desc) override {
+        // this method is called when session description is created
         // cout << "description created\n";
         peer_connection->SetLocalDescription(
             DummySetSessionDescriptionObserver::Create().get(), desc);
@@ -376,29 +390,30 @@ public:
     void OnFailure(webrtc::RTCError error) override {
         cout << "failed to create description\n";
     }
-    // PeerConnectionObserver
+
+
+
+
+    // PeerConnectionObserver implementation
     void OnAddTrack(
         rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
-        const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>> &
-            streams) override {
+        const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>> &streams
+    ) override {
+        // this method is called when we receive track data from counterpart
         cout << "on add track\n";
         auto* track = receiver->track().release();
         if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
             auto* video_track = static_cast<webrtc::VideoTrackInterface*>(track);
-            // just test, this needs to be deleted when is not necessary
-            video_track->AddOrUpdateSink(videoRenderer.get(), rtc::VideoSinkWants());
+            video_track->AddOrUpdateSink(videoReceiver.get(), rtc::VideoSinkWants());
         }
         if (track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
             auto* audio_track = static_cast<webrtc::AudioTrackInterface*>(track);
-            // just test, this needs to be deleted when is not necessary
-            audio_track->AddSink(audioRenderer.get());
+            audio_track->AddSink(audioReceiver.get());
         }
         track->Release();
-
-        // or just send the track back
-        // peer_connection->AddTrack(receiver->track(), {"stream_id"});
     }
     void OnIceCandidate(const webrtc::IceCandidateInterface *candidate) override {
+        // this method is called when we find ice candidate
         // cout << "found candidate\n";
         Json::Value candidateObj;
         candidateObj["sdpMid"] = candidate->sdp_mid();
@@ -417,9 +432,7 @@ public:
     void OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState new_state) override {
         cout << "connection change " << webrtc::PeerConnectionInterface::AsString(new_state) << "\n";
     }
-    void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState new_state) override {
-        // cout << "signaling change " << webrtc::PeerConnectionInterface::AsString(new_state) << "\n";
-    }
+    void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState new_state) override {}
     void OnTrack(rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) override {}
     void OnRemoveTrack(rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) override {}
     void OnDataChannel(rtc::scoped_refptr<webrtc::DataChannelInterface> channel) override {}
@@ -427,16 +440,12 @@ public:
     void OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState new_state) override {}
     void OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState new_state) override {}
     void OnIceConnectionReceivingChange(bool receiving) override {}
-    void OnStandardizedIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState new_state) override {
-        // cout << "ice connection change " << webrtc::PeerConnectionInterface::AsString(new_state) << "\n";
-    }
-    void OnIceCandidateError(const std::string& address, int port, const std::string& url, int error_code, const std::string& error_text) override {
-        // cout << "ice candidate error\n";
-    }
+    void OnStandardizedIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState new_state) override {}
+    void OnIceCandidateError(const std::string& address, int port, const std::string& url, int error_code, const std::string& error_text) override {}
 };
 
 int main(int argc, char *argv[]) {
-    auto rtcHolder = rtc::make_ref_counted<MyWebrtcHolder>();
-    rtcHolder->run();
+    auto app = rtc::make_ref_counted<MyWebrtcApplication>();
+    app->run();
     return 0;
 }

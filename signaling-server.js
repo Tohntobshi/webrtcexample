@@ -18,6 +18,6 @@ serv.on('connection', function connection(ws) {
           cl.send(JSON.stringify(data))
         }
       }
-      console.log('received: ', data)
+      console.log('received:', data)
     })
 });

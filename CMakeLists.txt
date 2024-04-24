@@ -22,47 +22,19 @@ include_directories(
 
 set(
   TARGETS
-    # main_2.cpp
-    # fftest.cpp
-
-    main.cpp
+    dummy_audio_device.cpp
+    frame_manipulation_example_main.cpp
 )
 
-add_executable( webrtcexample ${TARGETS} )
+add_executable( frame_manipulation_example ${TARGETS} )
 
-target_link_libraries(webrtcexample
+target_link_libraries(frame_manipulation_example
 
     ixwebsocket
     z
-    # ssl
-
     jsoncpp
 
     /home/tohntobshi/webrtc/src/out/Default2/obj/libwebrtc.a
 
     # X11
-
-    /home/tohntobshi/ffmpeg_build/lib/libavformat.a
-    /home/tohntobshi/ffmpeg_build/lib/libavcodec.a
-    /home/tohntobshi/ffmpeg_build/lib/libswresample.a
-    /home/tohntobshi/ffmpeg_build/lib/libavutil.a
-    /home/tohntobshi/ffmpeg_build/lib/libaom.a
-    /home/tohntobshi/ffmpeg_build/lib/libSvtAv1Enc.a
-
-    z
-    gnutls
-    x264
-    va
-    va-drm
-    va-x11
-    vdpau
-    X11
-    x265
-    vpx
-    fdk-aac
-    opus
-    dav1d
-    mp3lame
-    vorbis
-    vorbisenc
 )

@@ -32,7 +32,7 @@ async function run() {
     }
     ws.addEventListener('message', async e => {
         const message = JSON.parse(e.data)
-        console.log('received ', message)
+        console.log('received', message)
         if (message.offer) {
             peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer))
             const answer = await peerConnection.createAnswer()
@@ -55,35 +55,6 @@ async function run() {
         await peerConnection.setLocalDescription(offer)
         ws.send(JSON.stringify({ offer }))
     })
-    document.getElementById('playbtn').addEventListener('click', () => {
-        vid2.play()
-    })
 }
 
 run()
-
-
-
-
-
-// const configuration = {'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]}
-// const TURN_SERVER_URL = 'localhost:3478';
-// const TURN_SERVER_USERNAME = 'username';
-// const TURN_SERVER_CREDENTIAL = 'credential';
-// const configuration = {
-//     iceServers: [
-//         {
-//             urls: 'turn:' + TURN_SERVER_URL + '?transport=tcp',
-//             username: TURN_SERVER_USERNAME,
-//             credential: TURN_SERVER_CREDENTIAL
-//         },
-//         {
-//             urls: 'turn:' + TURN_SERVER_URL + '?transport=udp',
-//             username: TURN_SERVER_USERNAME,
-//             credential: TURN_SERVER_CREDENTIAL
-//         }
-//     ]
-// }
-
-
-
