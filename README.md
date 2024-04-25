@@ -5,7 +5,11 @@ Simple libwebrtc usage example with minimum unrelated logic. It uses ixwebsocket
 
 ## Libwebrtc build parameters
 
-    gn gen out/Default --args='is_debug=false is_component_build=false rtc_include_tests=false use_custom_libcxx=false treat_warnings_as_errors=false use_ozone=true rtc_use_x11=false use_rtti=true'
+    gn gen out/Default --args='is_debug=false is_component_build=false rtc_include_tests=false use_custom_libcxx=false treat_warnings_as_errors=false use_ozone=true rtc_use_x11=false use_rtti=true rtc_build_examples=false is_clang=false'    
+
+Show all flags
+
+    gn args <build_dir> --list
 
 Start signaling server
 

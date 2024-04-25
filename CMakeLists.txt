@@ -6,17 +6,11 @@ project( Webrtcexample )
 ADD_DEFINITIONS(-DWEBRTC_POSIX=1)
 ADD_DEFINITIONS(-D__STDC_CONSTANT_MACROS=1)
 
-SET(GCC_COVERAGE_COMPILE_FLAGS "-pthread")
-SET(GCC_COVERAGE_LINK_FLAGS    "")
-
-SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} ${GCC_COVERAGE_COMPILE_FLAGS}")
-SET(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${GCC_COVERAGE_LINK_FLAGS}")
-
 include_directories(
     ${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/include
-    /home/tohntobshi/webrtc/src
-    /home/tohntobshi/webrtc/src/third_party/abseil-cpp
-    /home/tohntobshi/webrtc/src/third_party/libyuv/include
+    ${CMAKE_SOURCE_DIR}/webrtc-checkout/src
+    ${CMAKE_SOURCE_DIR}/webrtc-checkout/src/third_party/abseil-cpp
+    ${CMAKE_SOURCE_DIR}/webrtc-checkout/src/third_party/libyuv/include
 )
 
 set(
@@ -32,5 +26,5 @@ target_link_libraries(frame_manipulation_example
     ${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/lib/libz.a
     ${CMAKE_SOURCE_DIR}/vcpkg_installed/x64-linux/lib/libjsoncpp.a
 
-    /home/tohntobshi/webrtc/src/out/Default2/obj/libwebrtc.a
+    ${CMAKE_SOURCE_DIR}/webrtc-checkout/src/out/Default/obj/libwebrtc.a
 )
